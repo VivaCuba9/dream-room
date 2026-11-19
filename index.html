@@ -10,11 +10,42 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="icon" href="icon-192.png">
+<script>
+// boot guard: if the 3D game cannot start, say why on the loading screen instead of a generic message
+(function () {
+  var errs = [], ua = navigator.userAgent, m = ua.match(/Version\/(\d+)\.(\d+)/) || ua.match(/OS (\d+)_(\d+)/), ios = m ? m[1] + '.' + m[2] : '?';
+  window.__bootFail = function (why, detail) { errs.push([why, String(detail || '').slice(0, 160)]); show(); };
+  function show() {
+    var l = document.getElementById('loading'); if (!l || l.hidden || !errs.length) return;
+    var e = errs[0];
+    l.innerHTML = '<div class="bootfail"><b>3D 画面没有加载出来</b><p>' + e[0] + '</p><button onclick="location.reload()">重新加载</button>'
+      + '<small>系统 ' + ios + ' · 版本 a80da87<br>' + e[1].replace(/</g, '&lt;') + '</small></div>';
+  }
+  addEventListener('error', function (ev) {
+    var t = ev.target, src = t && (t.src || t.href);
+    if (src && /fonts\.g/.test(src)) return;                     // a missing font is fine: system fonts take over
+    // a failed load fires on the element itself; a module whose imports fail has no src of its own
+    var el = t && t !== window && t.tagName, msg = ev.message || (src ? '文件下载失败 ' + src.split('/').slice(-2).join('/') : el ? el.toLowerCase() + ' 加载失败' : '未知错误');
+    __bootFail(/does not resolve|specifier|import/i.test(msg) ? 'Safari 版本太旧，不支持这个游戏用到的网页功能。请到「设置 › 通用 › 软件更新」把 iPad 升级到最新系统。'
+      : /WebGL/i.test(msg) ? '这台 iPad 的 Safari 打不开 3D 画面（WebGL）。如果开了「锁定模式」，请在 设置 › 隐私与安全性 › 锁定模式 里把这个网站排除；也可以重启 iPad 后再试。'
+      : el ? '有文件没下载下来，可能是网络不稳定。请连好 Wi-Fi 后点「重新加载」。' : '游戏启动时出了错。请点「重新加载」，还不行就把下面这行字拍照发给爸爸妈妈。', msg + (ev.lineno ? ' @' + ev.lineno : ''));
+  }, true);
+  addEventListener('unhandledrejection', function (ev) { __bootFail('游戏启动时出了错。请点「重新加载」。', ev.reason && (ev.reason.message || ev.reason)); });
+  addEventListener('DOMContentLoaded', function () {
+    try { var c = document.createElement('canvas'); if (!(c.getContext('webgl2') || c.getContext('webgl'))) __bootFail('这台 iPad 的 Safari 打不开 3D 画面（WebGL）。如果开了「锁定模式」，请在 设置 › 隐私与安全性 › 锁定模式 里把这个网站排除；也可以重启 iPad 后再试。', 'no WebGL context'); } catch (e) { }
+    show();
+  });
+  // slow network: keep waiting, but offer a reload button
+  setTimeout(function () { var l = document.getElementById('loading'); if (l && !l.hidden && !errs.length) l.innerHTML = '<div class="bootfail"><b>还在加载，网络有点慢…</b><p>第一次打开要下载大约 1 MB，下载好以后断网也能玩。</p><button onclick="location.reload()">重新加载</button></div>'; }, 20000);
+  if (!window.structuredClone) window.structuredClone = function (v) { return JSON.parse(JSON.stringify(v)); };
+})();
+</script>
+<script async src="vendor/es-module-shims.js"></script>
 <title>梦想小屋</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&family=Nunito:wght@500;700;800;900&family=ZCOOL+KuaiLe&display=swap">
+<link rel="stylesheet" media="print" onload="this.media='all'" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&family=Nunito:wght@500;700;800;900&family=ZCOOL+KuaiLe&display=swap">
 <style>
 /* Layout: floating toy-like panels on a cool paper desk — catalog on the left, live 3D room on the right, quiz & shop as big friendly dialogs */
 :root{
@@ -324,6 +355,9 @@ input{-webkit-user-select:text;user-select:text}
 .app{padding-top:max(10px,env(safe-area-inset-top,0px));padding-bottom:max(16px,env(safe-area-inset-bottom,0px))}
 @media (max-width:860px){body{overflow:auto;-webkit-overflow-scrolling:touch}}
 @media (hover:none){.card:hover,.portal button:hover{transform:none}}
+.bootfail{max-width:460px;display:grid;gap:10px;justify-items:center}.bootfail b{font-size:22px;color:var(--ink)}.bootfail p{margin:0;font:600 16px/1.5 var(--f-body)}
+.bootfail button{border:0;border-radius:14px;padding:10px 22px;font:700 17px var(--f-display);color:#fff;background:var(--blue);box-shadow:0 4px 0 var(--blue-d)}
+.bootfail small{font:500 12px/1.4 ui-monospace,monospace;color:var(--ink-2);opacity:.8;word-break:break-all}
 </style>
 
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -1414,8 +1448,8 @@ const itemLocked = it => it.price > 0 && !owns('item:' + it.id);
 
 /* ================= renderer + scene ================= */
 const stage = $('#stage'), canvas = $('#view');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+let renderer; try { renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true }); } catch (e) { __bootFail('这台 iPad 的 Safari 打不开 3D 画面（WebGL）。请重启 iPad 后再试；如果开了「锁定模式」，请把这个网站排除。', e.message); throw e; }
+renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
 renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 const scene = new THREE.Scene();
 const pmrem = new THREE.PMREMGenerator(renderer);
@@ -1426,10 +1460,10 @@ const camera_far = 120; camera.far = camera_far; camera.updateProjectionMatrix()
 const hemi = new THREE.HemisphereLight('#EAF2FF', '#B59A80', .9); scene.add(hemi);
 const amb = new THREE.AmbientLight('#ffffff', .15); scene.add(amb);
 const sun = new THREE.DirectionalLight('#FFEFD2', 3.4); sun.position.set(1.1, 5.2, -7.8); sun.target.position.set(1.1, 0, .2);
-scene.add(sun, sun.target); sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048);
+scene.add(sun, sun.target); sun.castShadow = true; sun.shadow.mapSize.set(1024, 1024);
 Object.assign(sun.shadow.camera, { left: -5, right: 5, top: 5, bottom: -5, near: 1, far: 22 }); sun.shadow.bias = -.0004; sun.shadow.normalBias = .02;
 sun.shadow.camera.layers.enable(1);
-const fill = new THREE.DirectionalLight('#FFFFFF', 1.0); fill.position.set(3, 9, 5); scene.add(fill, fill.target); fill.castShadow = true; fill.shadow.mapSize.set(2048, 2048);
+const fill = new THREE.DirectionalLight('#FFFFFF', 1.0); fill.position.set(3, 9, 5); scene.add(fill, fill.target); fill.castShadow = true; fill.shadow.mapSize.set(1024, 1024);
 Object.assign(fill.shadow.camera, { left: -5, right: 5, top: 5, bottom: -5, near: 1, far: 22 }); fill.shadow.bias = -.0004; fill.shadow.normalBias = .02;
 
 /* ================= the house ================= */
@@ -2708,7 +2742,7 @@ resize(); applyMode(); setView(state.view || 'house', false); renderPoints(false
 $('#loading').hidden = true; loop();
 </script>
 <script>
-  setTimeout(() => { const l = document.getElementById('loading'); if (l && !l.hidden) l.innerHTML = '<div>3D 画面没有加载出来<small>请检查网络后刷新页面</small></div>'; }, 15000);
+  
 </script>
 
 <script>
